@@ -18,15 +18,18 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/heapster/metrics/core"
 	"k8s.io/heapster/metrics/util"
 )
 
 func TestAllSourcesReplyInTime(t *testing.T) {
-	metricsSourceProvider := util.NewDummyMetricsSourceProvider(
-		util.NewDummyMetricsSource("s1", time.Second),
-		util.NewDummyMetricsSource("s2", time.Second))
+	metricsSourceProviders := []core.MetricsSourceProvider{
+		util.NewDummyMetricsSourceProvider(
+			util.NewDummyMetricsSource("s1", time.Second),
+			util.NewDummyMetricsSource("s2", time.Second)),
+	}
 
-	manager, _ := NewSourceManager(metricsSourceProvider, time.Second*3)
+	manager, _ := NewSourceManager(metricsSourceProviders, time.Second*3)
 	now := time.Now()
 	end := now.Truncate(10 * time.Second)
 	dataBatch := manager.ScrapeMetrics(end.Add(-10*time.Second), end)
@@ -51,11 +54,12 @@ func TestAllSourcesReplyInTime(t *testing.T) {
 }
 
 func TestOneSourcesReplyInTime(t *testing.T) {
-	metricsSourceProvider := util.NewDummyMetricsSourceProvider(
-		util.NewDummyMetricsSource("s1", time.Second),
-		util.NewDummyMetricsSource("s2", 30*time.Second))
-
-	manager, _ := NewSourceManager(metricsSourceProvider, time.Second*3)
+	metricsSourceProviders := []core.MetricsSourceProvider{
+		util.NewDummyMetricsSourceProvider(
+			util.NewDummyMetricsSource("s1", time.Second),
+			util.NewDummyMetricsSource("s2", 30*time.Second)),
+	}
+	manager, _ := NewSourceManager(metricsSourceProviders, time.Second*3)
 	now := time.Now()
 	end := now.Truncate(10 * time.Second)
 	dataBatch := manager.ScrapeMetrics(end.Add(-10*time.Second), end)
@@ -84,11 +88,13 @@ func TestOneSourcesReplyInTime(t *testing.T) {
 }
 
 func TestNoSourcesReplyInTime(t *testing.T) {
-	metricsSourceProvider := util.NewDummyMetricsSourceProvider(
-		util.NewDummyMetricsSource("s1", 30*time.Second),
-		util.NewDummyMetricsSource("s2", 30*time.Second))
+	metricsSourceProviders := []core.MetricsSourceProvider{
+		util.NewDummyMetricsSourceProvider(
+			util.NewDummyMetricsSource("s1", 30*time.Second),
+			util.NewDummyMetricsSource("s2", 30*time.Second)),
+	}
 
-	manager, _ := NewSourceManager(metricsSourceProvider, time.Second*3)
+	manager, _ := NewSourceManager(metricsSourceProviders, time.Second*3)
 	now := time.Now()
 	end := now.Truncate(10 * time.Second)
 	dataBatch := manager.ScrapeMetrics(end.Add(-10*time.Second), end)

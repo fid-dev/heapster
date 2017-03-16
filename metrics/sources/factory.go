@@ -20,6 +20,7 @@ import (
 	"k8s.io/heapster/common/flags"
 	"k8s.io/heapster/metrics/core"
 	"k8s.io/heapster/metrics/sources/kubelet"
+	"k8s.io/heapster/metrics/sources/pod"
 	"k8s.io/heapster/metrics/sources/summary"
 )
 
@@ -34,16 +35,26 @@ func (this *SourceFactory) Build(uri flags.Uri) (core.MetricsSourceProvider, err
 	case "kubernetes.summary_api":
 		provider, err := summary.NewSummaryProvider(&uri.Val)
 		return provider, err
+	case "pod":
+		provider, err := pod.NewPodProvider(&uri.Val)
+		return provider, err
 	default:
 		return nil, fmt.Errorf("Source not recognized: %s", uri.Key)
 	}
 }
 
-func (this *SourceFactory) BuildAll(uris flags.Uris) (core.MetricsSourceProvider, error) {
-	if len(uris) != 1 {
-		return nil, fmt.Errorf("Only one source is supported")
+func (this *SourceFactory) BuildAll(uris flags.Uris) ([]core.MetricsSourceProvider, error) {
+	providers := make([]core.MetricsSourceProvider, 0, len(uris))
+
+	for _, uri := range uris {
+		provider, err := this.Build(uri)
+		if err != nil {
+			return nil, err
+		}
+		providers = append(providers, provider)
 	}
-	return this.Build(uris[0])
+
+	return providers, nil
 }
 
 func NewSourceFactory() *SourceFactory {

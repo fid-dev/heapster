@@ -168,15 +168,15 @@ func startSecureServing(opt *options.HeapsterRunOptions, handler http.Handler, p
 }
 
 func createSourceManagerOrDie(src flags.Uris) core.MetricsSource {
-	if len(src) != 1 {
+	if len(src) == 0 {
 		glog.Fatal("Wrong number of sources specified")
 	}
 	sourceFactory := sources.NewSourceFactory()
-	sourceProvider, err := sourceFactory.BuildAll(src)
+	sourceProviders, err := sourceFactory.BuildAll(src)
 	if err != nil {
-		glog.Fatalf("Failed to create source provide: %v", err)
+		glog.Fatalf("Failed to create source provider: %v", err)
 	}
-	sourceManager, err := sources.NewSourceManager(sourceProvider, sources.DefaultMetricsScrapeTimeout)
+	sourceManager, err := sources.NewSourceManager(sourceProviders, sources.DefaultMetricsScrapeTimeout)
 	if err != nil {
 		glog.Fatalf("Failed to create source manager: %v", err)
 	}
