@@ -79,7 +79,9 @@ func (s *podMetricsSource) ScrapeMetrics(start, end time.Time) *DataBatch {
 		return &DataBatch{}
 	}
 
-	return convertVectorToDataBatch(end, vector)
+	mSet := convertVectorToMetricSetMap(vector, s.pod.Status.StartTime.Time)
+
+	return convertVectorToDataBatch(end, mSet)
 }
 
 func (s *podMetricsSource) scrapeMetrics(start, end time.Time) (*model.Vector, error) {
@@ -88,13 +90,13 @@ func (s *podMetricsSource) scrapeMetrics(start, end time.Time) (*model.Vector, e
 	return s.promClient.GetPodMetrics(s.pod, s.podConfig.ip, s.podConfig.port, s.podConfig.path, end)
 }
 
-func convertVectorToDataBatch(ts time.Time, vector *model.Vector) *DataBatch {
+func convertVectorToDataBatch(ts time.Time, mSet map[string]*MetricSet) *DataBatch {
 	return &DataBatch{
 		Timestamp:  ts,
-		MetricSets: convertVectorToMetricSetMap(vector),
+		MetricSets: mSet,
 	}
 }
-func convertVectorToMetricSetMap(vector *model.Vector) map[string]*MetricSet {
+func convertVectorToMetricSetMap(vector *model.Vector, createTime time.Time) map[string]*MetricSet {
 	mSets := map[string]*MetricSet{}
 
 	for _, sample := range *vector {
@@ -109,7 +111,7 @@ func convertVectorToMetricSetMap(vector *model.Vector) map[string]*MetricSet {
 		key := PodKey(namespace, podName)
 		if set, found = mSets[key]; !found {
 			set = &MetricSet{
-				CreateTime:   time.Now(),
+				CreateTime:   createTime,
 				ScrapeTime:   sample.Timestamp.Time(),
 				MetricValues: map[string]MetricValue{},
 				Labels: map[string]string{
