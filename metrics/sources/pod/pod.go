@@ -20,8 +20,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
 
+	v1listers "k8s.io/client-go/listers/core/v1"
 	kube_api "k8s.io/client-go/pkg/api/v1"
 	. "k8s.io/heapster/metrics/core"
+	"net"
 	"time"
 )
 
@@ -55,13 +57,15 @@ type podMetricsSource struct {
 	pod           *kube_api.Pod
 	promClient    PrometheusClient
 	podConfig     *podConfig
+	nodeLister    v1listers.NodeLister
 	scrapeTimeout time.Duration
 }
 
-func NewPodMetricsSource(pod *kube_api.Pod, podConfig *podConfig, promClient PrometheusClient) MetricsSource {
+func NewPodMetricsSource(pod *kube_api.Pod, podConfig *podConfig, nodeLister v1listers.NodeLister, promClient PrometheusClient) MetricsSource {
 	src := &podMetricsSource{
 		pod:        pod,
 		podConfig:  podConfig,
+		nodeLister: nodeLister,
 		promClient: promClient,
 	}
 
@@ -79,7 +83,7 @@ func (s *podMetricsSource) ScrapeMetrics(start, end time.Time) *DataBatch {
 		return &DataBatch{}
 	}
 
-	mSet := convertVectorToMetricSetMap(vector, s.pod.Status.StartTime.Time)
+	mSet := convertVectorToMetricSetMap(vector, s.pod, s.nodeLister)
 
 	return convertVectorToDataBatch(end, mSet)
 }
@@ -96,7 +100,7 @@ func convertVectorToDataBatch(ts time.Time, mSet map[string]*MetricSet) *DataBat
 		MetricSets: mSet,
 	}
 }
-func convertVectorToMetricSetMap(vector *model.Vector, createTime time.Time) map[string]*MetricSet {
+func convertVectorToMetricSetMap(vector *model.Vector, pod *kube_api.Pod, nodeLister v1listers.NodeLister) map[string]*MetricSet {
 	mSets := map[string]*MetricSet{}
 
 	for _, sample := range *vector {
@@ -110,13 +114,30 @@ func convertVectorToMetricSetMap(vector *model.Vector, createTime time.Time) map
 		var found bool
 		key := PodKey(namespace, podName)
 		if set, found = mSets[key]; !found {
+			node, err := nodeLister.Get(pod.Spec.NodeName)
+			if err != nil {
+				glog.Error(err)
+				continue
+			}
+
+			nodeHostname, _, err := getNodeHostnameAndIP(node)
+			if err != nil {
+				glog.Error(err)
+				continue
+			}
+
 			set = &MetricSet{
-				CreateTime:   createTime,
+				CreateTime:   pod.Status.StartTime.Time,
 				ScrapeTime:   sample.Timestamp.Time(),
 				MetricValues: map[string]MetricValue{},
 				Labels: map[string]string{
 					LabelPodName.Key:       podName,
 					LabelNamespaceName.Key: namespace,
+					LabelMetricSetType.Key: MetricSetTypePod,
+					LabelHostname.Key:      nodeHostname,
+					LabelNodename.Key:      node.Name,
+					LabelHostID.Key:        node.Spec.ExternalID,
+					LabelPodId.Key:         string(pod.UID),
 				},
 				LabeledMetrics: []LabeledMetric{},
 			}
@@ -138,6 +159,32 @@ func convertVectorToMetricSetMap(vector *model.Vector, createTime time.Time) map
 	}
 
 	return mSets
+}
+
+func getNodeHostnameAndIP(node *kube_api.Node) (string, string, error) {
+	for _, c := range node.Status.Conditions {
+		if c.Type == kube_api.NodeReady && c.Status != kube_api.ConditionTrue {
+			return "", "", fmt.Errorf("Node %v is not ready", node.Name)
+		}
+	}
+	hostname, ip := node.Name, ""
+	for _, addr := range node.Status.Addresses {
+		if addr.Type == kube_api.NodeHostName && addr.Address != "" {
+			hostname = addr.Address
+		}
+		if addr.Type == kube_api.NodeInternalIP && addr.Address != "" {
+			if net.ParseIP(addr.Address).To4() != nil {
+				ip = addr.Address
+			}
+		}
+		if addr.Type == kube_api.NodeLegacyHostIP && addr.Address != "" && ip == "" {
+			ip = addr.Address
+		}
+	}
+	if ip != "" {
+		return hostname, ip, nil
+	}
+	return "", "", fmt.Errorf("Node %v has no valid hostname and/or IP address: %v %v", node.Name, hostname, ip)
 }
 
 func convertSampleToMetricValue(sample *model.Sample) MetricValue {

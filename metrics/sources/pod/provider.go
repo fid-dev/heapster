@@ -27,6 +27,7 @@ import (
 	kube_api "k8s.io/client-go/pkg/api/v1"
 	"k8s.io/client-go/tools/cache"
 	. "k8s.io/heapster/metrics/core"
+	"k8s.io/heapster/metrics/util"
 	"net/http"
 	"strconv"
 	"time"
@@ -34,6 +35,7 @@ import (
 
 type podProvider struct {
 	podLister  v1listers.PodLister
+	nodeLister v1listers.NodeLister
 	reflector  *cache.Reflector
 	httpClient *http.Client
 }
@@ -59,10 +61,14 @@ func NewPodProvider(uri *url.URL) (MetricsSourceProvider, error) {
 	}
 
 	// watch pods
-	nodeLister, reflector, _ := GetPodLister(kubeClient)
+	podLister, reflector, _ := GetPodLister(kubeClient)
+
+	// watch nodes
+	nodeLister, reflector, _ := util.GetNodeLister(kubeClient)
 
 	return &podProvider{
-		podLister:  nodeLister,
+		podLister:  podLister,
+		nodeLister: nodeLister,
 		reflector:  reflector,
 		httpClient: http.DefaultClient,
 	}, nil
@@ -92,6 +98,7 @@ func (p *podProvider) GetMetricsSources() []MetricsSource {
 		sources = append(sources, NewPodMetricsSource(
 			pod,
 			podConfig,
+			p.nodeLister,
 			NewPromClient(http.DefaultClient),
 		))
 	}
@@ -120,7 +127,7 @@ func getPodConfig(pod *kube_api.Pod) (*podConfig, error) {
 	path := DefaultPodMetricsPath
 	port := DefaultPodMetricsPort
 
-	if podPort, found := a[ScrapePathAnnotationKey]; found {
+	if podPort, found := a[ScrapePortAnnotationKey]; found {
 		var err error
 		var i64 int64
 		if i64, err = strconv.ParseInt(podPort, 10, 32); err != nil {
@@ -135,7 +142,7 @@ func getPodConfig(pod *kube_api.Pod) (*podConfig, error) {
 		}
 	}
 
-	if podPath, found := a[ScrapePortAnnotationKey]; found {
+	if podPath, found := a[ScrapePathAnnotationKey]; found {
 		path = podPath
 	}
 
