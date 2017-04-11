@@ -11,7 +11,7 @@ ifndef TEMP_DIR
 TEMP_DIR:=$(shell mktemp -d /tmp/heapster.XXXXXX)
 endif
 
-VERSION?=v1.3.1
+VERSION?=v1.3.2
 GIT_COMMIT:=$(shell git rev-parse --short HEAD)
 
 TESTUSER=

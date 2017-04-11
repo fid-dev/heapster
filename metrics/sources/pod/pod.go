@@ -73,13 +73,17 @@ func NewPodMetricsSource(pod *kube_api.Pod, podConfig *podConfig, nodeLister v1l
 }
 
 func (s *podMetricsSource) Name() string {
-	return PodKey(s.pod.Namespace, s.pod.Name)
+	return s.String()
+}
+
+func (s *podMetricsSource) String() string {
+	return fmt.Sprintf("pod/%s", PodKey(s.pod.Namespace, s.pod.Name))
 }
 
 func (s *podMetricsSource) ScrapeMetrics(start, end time.Time) *DataBatch {
 	vector, err := s.scrapeMetrics(start, end)
 	if err != nil {
-		glog.Errorf("%v", err)
+		glog.Errorf("Failed scaping metrics: %s\n%v", s.Name(), err)
 		return &DataBatch{}
 	}
 
