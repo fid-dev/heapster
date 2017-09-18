@@ -67,7 +67,7 @@ func main() {
 	logs.InitLogs()
 	defer logs.FlushLogs()
 
-	setLabelSeperator(opt)
+	setLabelSeparator(opt)
 	setMaxProcs(opt)
 	glog.Infof(strings.Join(os.Args, " "))
 	glog.Infof("Heapster version %v", version.HeapsterVersion)
@@ -326,7 +326,7 @@ func getPodLister(kubeClient *kube_client.Clientset) (v1listers.PodLister, error
 
 func validateFlags(opt *options.HeapsterRunOptions) error {
 	if opt.MetricResolution < 5*time.Second {
-		return fmt.Errorf("metric resolution needs to be greater than 5 seconds - %d", opt.MetricResolution)
+		return fmt.Errorf("metric resolution should not be less than 5 seconds - %d", opt.MetricResolution)
 	}
 	if (len(opt.TLSCertFile) > 0 && len(opt.TLSKeyFile) == 0) || (len(opt.TLSCertFile) == 0 && len(opt.TLSKeyFile) > 0) {
 		return fmt.Errorf("both TLS certificate & key are required to enable TLS serving")
@@ -354,6 +354,6 @@ func setMaxProcs(opt *options.HeapsterRunOptions) {
 	}
 }
 
-func setLabelSeperator(opt *options.HeapsterRunOptions) {
-	util.SetLabelSeperator(opt.LabelSeperator)
+func setLabelSeparator(opt *options.HeapsterRunOptions) {
+	util.SetLabelSeparator(opt.LabelSeparator)
 }

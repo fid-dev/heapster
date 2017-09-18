@@ -210,7 +210,7 @@ func (this *summaryMetricsSource) decodePodStats(metrics map[string]*MetricSet, 
 
 func containerIsTerminated(container *stats.ContainerStats, otherStartTime time.Time) bool {
 	if container.StartTime.Time.Before(otherStartTime) {
-		if *container.CPU.UsageNanoCores == 0 && *container.Memory.UsageBytes == 0 {
+		if *container.CPU.UsageNanoCores == 0 && *container.Memory.RSSBytes == 0 {
 			return true
 		}
 		glog.Warningf("Two identical containers are reported and the older one is not terminated: %v", container)
@@ -428,6 +428,9 @@ func (this *summaryProvider) getNodeInfo(node *kube_api.Node) (NodeInfo, error) 
 			info.IP = addr.Address
 		}
 		if addr.Type == kube_api.NodeLegacyHostIP && addr.Address != "" && info.IP == "" {
+			info.IP = addr.Address
+		}
+		if addr.Type == kube_api.NodeExternalIP && addr.Address != "" && info.IP == "" {
 			info.IP = addr.Address
 		}
 	}
