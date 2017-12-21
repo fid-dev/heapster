@@ -59,16 +59,16 @@ func init() {
 	prometheus.MustRegister(scraperDuration)
 }
 
-func NewSourceManager(metricsSourceProvider MetricsSourceProvider, metricsScrapeTimeout time.Duration) (MetricsSource, error) {
+func NewSourceManager(metricsSourceProviders []MetricsSourceProvider, metricsScrapeTimeout time.Duration) (MetricsSource, error) {
 	return &sourceManager{
-		metricsSourceProvider: metricsSourceProvider,
-		metricsScrapeTimeout:  metricsScrapeTimeout,
+		metricsSourceProviders: metricsSourceProviders,
+		metricsScrapeTimeout:   metricsScrapeTimeout,
 	}, nil
 }
 
 type sourceManager struct {
-	metricsSourceProvider MetricsSourceProvider
-	metricsScrapeTimeout  time.Duration
+	metricsSourceProviders []MetricsSourceProvider
+	metricsScrapeTimeout   time.Duration
 }
 
 func (this *sourceManager) Name() string {
@@ -77,7 +77,14 @@ func (this *sourceManager) Name() string {
 
 func (this *sourceManager) ScrapeMetrics(start, end time.Time) (*DataBatch, error) {
 	glog.V(1).Infof("Scraping metrics start: %s, end: %s", start, end)
-	sources := this.metricsSourceProvider.GetMetricsSources()
+
+	sources := make([]MetricsSource, 0)
+	for _, provider := range this.metricsSourceProviders {
+		sourceList := provider.GetMetricsSources()
+		if len(sourceList) != 0 {
+			sources = append(sources, sourceList...)
+		}
+	}
 
 	responseChannel := make(chan *DataBatch)
 	startTime := time.Now()
