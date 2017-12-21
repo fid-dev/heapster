@@ -19,10 +19,10 @@
 
 all: build
 
-VERSION?=v1.1.1
+VERSION?=v1.3.3
 PREFIX?=gcr.io/google_containers
 ARCH?=amd64
-GOLANG_VERSION=1.7
+GOLANG_VERSION=1.8
 TEMP_DIR:=$(shell mktemp -d)
 
 ALL_ARCHITECTURES=amd64 arm arm64 ppc64le s390x
@@ -69,7 +69,7 @@ push: gcr-login $(addprefix sub-push-,$(ALL_ARCHITECTURES))
 
 sub-push-%:
 	$(MAKE) ARCH=$* PREFIX=$(PREFIX) VERSION=$(VERSION) build
-	docker push $(PREFIX)/heapster-influxdb-$(ARCH):$(VERSION)
+	docker push $(PREFIX)/heapster-influxdb-$*:$(VERSION)
 
 gcr-login:
 ifeq ($(findstring gcr.io,$(PREFIX)),gcr.io)

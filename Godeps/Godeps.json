@@ -1,6 +1,6 @@
 {
 	"ImportPath": "k8s.io/heapster",
-	"GoVersion": "go1.7",
+	"GoVersion": "go1.8",
 	"GodepVersion": "v79",
 	"Packages": [
 		"./..."
@@ -321,11 +321,11 @@
 		},
 		{
 			"ImportPath": "github.com/riemann/riemann-go-client",
-			"Rev": "a47101952fc2c860c631b68711b7737324201438"
+			"Rev": "0f94ab135508410abf50704b72197d664eb2bee3"
 		},
 		{
 			"ImportPath": "github.com/riemann/riemann-go-client/proto",
-			"Rev": "a47101952fc2c860c631b68711b7737324201438"
+			"Rev": "0f94ab135508410abf50704b72197d664eb2bee3"
 		},
 		{
 			"ImportPath": "github.com/smartystreets/go-aws-auth",
@@ -463,23 +463,23 @@
 		},
 		{
 			"ImportPath": "google.golang.org/api/gensupport",
-			"Rev": "4300f6b0c8a7f09e521dd0af2cee27e28846e037"
+			"Rev": "e665075b5ff79143ba49c58fab02df9dc122afd5"
 		},
 		{
 			"ImportPath": "google.golang.org/api/googleapi",
-			"Rev": "4300f6b0c8a7f09e521dd0af2cee27e28846e037"
+			"Rev": "e665075b5ff79143ba49c58fab02df9dc122afd5"
 		},
 		{
 			"ImportPath": "google.golang.org/api/googleapi/internal/uritemplates",
-			"Rev": "4300f6b0c8a7f09e521dd0af2cee27e28846e037"
+			"Rev": "e665075b5ff79143ba49c58fab02df9dc122afd5"
 		},
 		{
 			"ImportPath": "google.golang.org/api/logging/v2beta1",
-			"Rev": "4300f6b0c8a7f09e521dd0af2cee27e28846e037"
+			"Rev": "e665075b5ff79143ba49c58fab02df9dc122afd5"
 		},
 		{
 			"ImportPath": "google.golang.org/api/monitoring/v3",
-			"Rev": "4300f6b0c8a7f09e521dd0af2cee27e28846e037"
+			"Rev": "e665075b5ff79143ba49c58fab02df9dc122afd5"
 		},
 		{
 			"ImportPath": "google.golang.org/appengine",
@@ -582,6 +582,16 @@
 			"ImportPath": "gopkg.in/olivere/elastic.v3/uritemplates",
 			"Comment": "v3.0.56",
 			"Rev": "1ad75b5396674e9c783400e89106bc0c8da9d786"
+		},
+		{
+			"ImportPath": "gopkg.in/olivere/elastic.v5",
+			"Comment": "v5.0.36",
+			"Rev": "6f76abde0f1f149b7d6fc47aee4c54366844f775"
+		},
+		{
+			"ImportPath": "gopkg.in/olivere/elastic.v5/uritemplates",
+			"Comment": "v5.0.36",
+			"Rev": "6f76abde0f1f149b7d6fc47aee4c54366844f775"
 		},
 		{
 			"ImportPath": "gopkg.in/yaml.v2",

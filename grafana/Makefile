@@ -19,16 +19,16 @@
 
 all: build
 
-VERSION?=v4.0.2
+VERSION?=v4.4.3
+DEB_VERSION?=4.4.3
+
 PREFIX?=gcr.io/google_containers
 ARCH?=amd64
 TEMP_DIR:=$(shell mktemp -d)
 LDFLAGS=-w -X main.version=$(VERSION) -X main.commit=unknown-dev -X main.timestamp=0 -extldflags '-static'
-DEB_BUILD=4.0.2-1481203731
-KUBE_CROSS_IMAGE=gcr.io/google_containers/kube-cross:v1.7.3-0
+KUBE_CROSS_IMAGE=gcr.io/google_containers/kube-cross:v1.8.3-2
 
-# s390x
-ALL_ARCHITECTURES=amd64 arm arm64 ppc64le
+ALL_ARCHITECTURES=amd64 arm arm64 ppc64le s390x
 ML_PLATFORMS=linux/amd64,linux/arm,linux/arm64,linux/ppc64le,linux/s390x
 
 # Set default base image dynamically for each arch
@@ -38,7 +38,7 @@ ifeq ($(ARCH),amd64)
 endif
 ifeq ($(ARCH),arm)
 	BASEIMAGE?=armhf/busybox
-	CC=arm-linux-gnueabi-gcc
+	CC=arm-linux-gnueabihf-gcc
 endif
 ifeq ($(ARCH),arm64)
 	BASEIMAGE?=aarch64/busybox
@@ -57,15 +57,17 @@ build:
 	# Copy the whole directory to a temporary dir and set the base image
 	cp -r ./* $(TEMP_DIR)
 
-	cd $(TEMP_DIR) && sed -i "s|BASEIMAGE|$(BASEIMAGE)|g" Dockerfile
+	cd $(TEMP_DIR) && sed -i -e "s|BASEIMAGE|$(BASEIMAGE)|g" Dockerfile
 
 	# This script downloads the official grafana deb package, compiles grafana for the right architecture which replaces the built-in, dynamically linked binaries
 	# Then the rootfs will be compressed into a tarball again, in order to be ADDed in the Dockerfile.
 	# Lastly, it compiles the go helper
 	docker run --rm -it -v $(TEMP_DIR):/build -w /go/src/github.com/grafana/grafana $(KUBE_CROSS_IMAGE) /bin/bash -c "\
 		curl -sSL https://github.com/grafana/grafana/archive/$(VERSION).tar.gz | tar -xz --strip-components=1 \
-		&& curl -sSL https://grafanarel.s3.amazonaws.com/builds/grafana_$(DEB_BUILD)_amd64.deb > /tmp/grafana.deb \
+		&& curl -sSL https://s3-us-west-2.amazonaws.com/grafana-releases/release/grafana_$(DEB_VERSION)_amd64.deb > /tmp/grafana.deb \
 		&& mkdir /tmp/grafanarootfs && dpkg -x /tmp/grafana.deb /tmp/grafanarootfs \
+		&& cp /tmp/grafanarootfs/usr/share/grafana/conf/sample.ini /tmp/grafanarootfs/etc/grafana/grafana.ini \
+		&& cp /tmp/grafanarootfs/usr/share/grafana/conf/ldap.toml /tmp/grafanarootfs/etc/grafana/ldap.toml \
 		&& CGO_ENABLED=1 GOARCH=$(ARCH) CC=$(CC) go build --ldflags=\"$(LDFLAGS)\" -o /tmp/grafanarootfs/usr/sbin/grafana-server ./pkg/cmd/grafana-server \
 		&& CGO_ENABLED=1 GOARCH=$(ARCH) CC=$(CC) go build --ldflags=\"$(LDFLAGS)\" -o /tmp/grafanarootfs/usr/sbin/grafana-cli ./pkg/cmd/grafana-cli \
 		&& cd /tmp/grafanarootfs && tar -cf /build/grafana.tar . \

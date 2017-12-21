@@ -25,6 +25,7 @@ import (
 	"k8s.io/heapster/metrics/sinks/gcm"
 	"k8s.io/heapster/metrics/sinks/graphite"
 	"k8s.io/heapster/metrics/sinks/hawkular"
+	"k8s.io/heapster/metrics/sinks/honeycomb"
 	"k8s.io/heapster/metrics/sinks/influxdb"
 	"k8s.io/heapster/metrics/sinks/kafka"
 	"k8s.io/heapster/metrics/sinks/librato"
@@ -69,6 +70,8 @@ func (this *SinkFactory) Build(uri flags.Uri) (core.DataSink, error) {
 		return wavefront.NewWavefrontSink(&uri.Val)
 	case "riemann":
 		return riemann.CreateRiemannSink(&uri.Val)
+	case "honeycomb":
+		return honeycomb.NewHoneycombSink(&uri.Val)
 	default:
 		return nil, fmt.Errorf("Sink not recognized: %s", uri.Key)
 	}
@@ -81,7 +84,7 @@ func (this *SinkFactory) BuildAll(uris flags.Uris, historicalUri string) (*metri
 	for _, uri := range uris {
 		sink, err := this.Build(uri)
 		if err != nil {
-			glog.Errorf("Failed to create sink: %v", err)
+			glog.Errorf("Failed to create %s sink: %v", sink.Name(), err)
 			continue
 		}
 		if uri.Key == "metric" {

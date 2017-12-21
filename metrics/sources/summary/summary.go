@@ -81,7 +81,7 @@ func (this *summaryMetricsSource) String() string {
 	return fmt.Sprintf("kubelet_summary:%s:%d", this.node.IP, this.node.Port)
 }
 
-func (this *summaryMetricsSource) ScrapeMetrics(start, end time.Time) *DataBatch {
+func (this *summaryMetricsSource) ScrapeMetrics(start, end time.Time) (*DataBatch, error) {
 	result := &DataBatch{
 		Timestamp:  time.Now(),
 		MetricSets: map[string]*MetricSet{},
@@ -94,13 +94,12 @@ func (this *summaryMetricsSource) ScrapeMetrics(start, end time.Time) *DataBatch
 	}()
 
 	if err != nil {
-		glog.Errorf("error while getting metrics summary from Kubelet %s(%s:%d): %v", this.node.NodeName, this.node.IP, this.node.Port, err)
-		return result
+		return nil, err
 	}
 
 	result.MetricSets = this.decodeSummary(summary)
 
-	return result
+	return result, err
 }
 
 const (
@@ -163,8 +162,8 @@ func (this *summaryMetricsSource) decodeNodeStats(metrics map[string]*MetricSet,
 	metrics[NodeKey(node.NodeName)] = nodeMetrics
 
 	for _, container := range node.SystemContainers {
-		key := NodeContainerKey(node.NodeName, this.getContainerName(&container))
-		containerMetrics := this.decodeContainerStats(labels, &container)
+		key := NodeContainerKey(node.NodeName, this.getSystemContainerName(&container))
+		containerMetrics := this.decodeContainerStats(labels, &container, true)
 		containerMetrics.Labels[LabelMetricSetType.Key] = MetricSetTypeSystemContainer
 		metrics[key] = containerMetrics
 	}
@@ -184,8 +183,6 @@ func (this *summaryMetricsSource) decodePodStats(metrics map[string]*MetricSet, 
 	podMetrics.Labels[LabelPodId.Key] = ref.UID
 	podMetrics.Labels[LabelPodName.Key] = ref.Name
 	podMetrics.Labels[LabelNamespaceName.Key] = ref.Namespace
-	// Needed for backward compatibility
-	podMetrics.Labels[LabelPodNamespace.Key] = ref.Namespace
 
 	this.decodeUptime(podMetrics, pod.StartTime.Time)
 	this.decodeNetworkStats(podMetrics, pod.Network)
@@ -196,11 +193,31 @@ func (this *summaryMetricsSource) decodePodStats(metrics map[string]*MetricSet, 
 
 	for _, container := range pod.Containers {
 		key := PodContainerKey(ref.Namespace, ref.Name, container.Name)
-		metrics[key] = this.decodeContainerStats(podMetrics.Labels, &container)
+		// This check ensures that we are not replacing metrics of running container with metrics of terminated one if
+		// there are two exactly same containers reported by kubelet.
+		if _, exist := metrics[key]; exist {
+			glog.V(8).Infof("Metrics reported from two containers with the same key: %v. Create time of "+
+				"containers are %v and %v. Metrics from the older container are going to be dropped.", key,
+				container.StartTime.Time, metrics[key].CreateTime)
+			if containerIsTerminated(&container, metrics[key].CreateTime) {
+				continue
+			}
+		}
+		metrics[key] = this.decodeContainerStats(podMetrics.Labels, &container, false)
 	}
 }
 
-func (this *summaryMetricsSource) decodeContainerStats(podLabels map[string]string, container *stats.ContainerStats) *MetricSet {
+func containerIsTerminated(container *stats.ContainerStats, otherStartTime time.Time) bool {
+	if container.StartTime.Time.Before(otherStartTime) {
+		if *container.CPU.UsageNanoCores == 0 && *container.Memory.RSSBytes == 0 {
+			return true
+		}
+		glog.Warningf("Two identical containers are reported and the older one is not terminated: %v", container)
+	}
+	return false
+}
+
+func (this *summaryMetricsSource) decodeContainerStats(podLabels map[string]string, container *stats.ContainerStats, isSystemContainer bool) *MetricSet {
 	glog.V(9).Infof("Decoding container stats stats for container %s...", container.Name)
 	containerMetrics := &MetricSet{
 		Labels:         this.cloneLabels(podLabels),
@@ -210,7 +227,11 @@ func (this *summaryMetricsSource) decodeContainerStats(podLabels map[string]stri
 		ScrapeTime:     this.getScrapeTime(container.CPU, container.Memory, nil),
 	}
 	containerMetrics.Labels[LabelMetricSetType.Key] = MetricSetTypePodContainer
-	containerMetrics.Labels[LabelContainerName.Key] = this.getContainerName(container)
+	if isSystemContainer {
+		containerMetrics.Labels[LabelContainerName.Key] = this.getSystemContainerName(container)
+	} else {
+		containerMetrics.Labels[LabelContainerName.Key] = container.Name
+	}
 
 	this.decodeUptime(containerMetrics, container.StartTime.Time)
 	this.decodeCPUStats(containerMetrics, container.CPU)
@@ -249,6 +270,7 @@ func (this *summaryMetricsSource) decodeMemoryStats(metrics *MetricSet, memory *
 
 	this.addIntMetric(metrics, &MetricMemoryUsage, memory.UsageBytes)
 	this.addIntMetric(metrics, &MetricMemoryWorkingSet, memory.WorkingSetBytes)
+	this.addIntMetric(metrics, &MetricMemoryRSS, memory.RSSBytes)
 	this.addIntMetric(metrics, &MetricMemoryPageFaults, memory.PageFaults)
 	this.addIntMetric(metrics, &MetricMemoryMajorPageFaults, memory.MajorPageFaults)
 }
@@ -348,7 +370,7 @@ func (this *summaryMetricsSource) addLabeledIntMetric(metrics *MetricSet, metric
 }
 
 // Translate system container names to the legacy names for backwards compatibility.
-func (this *summaryMetricsSource) getContainerName(c *stats.ContainerStats) string {
+func (this *summaryMetricsSource) getSystemContainerName(c *stats.ContainerStats) string {
 	if legacyName, ok := systemNameMap[c.Name]; ok {
 		return legacyName
 	}
@@ -405,6 +427,9 @@ func (this *summaryProvider) getNodeInfo(node *kube_api.Node) (NodeInfo, error) 
 			info.IP = addr.Address
 		}
 		if addr.Type == kube_api.NodeLegacyHostIP && addr.Address != "" && info.IP == "" {
+			info.IP = addr.Address
+		}
+		if addr.Type == kube_api.NodeExternalIP && addr.Address != "" && info.IP == "" {
 			info.IP = addr.Address
 		}
 	}

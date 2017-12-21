@@ -23,7 +23,6 @@ import (
 	gce_util "k8s.io/heapster/common/gce"
 	"k8s.io/heapster/metrics/core"
 
-	gce "cloud.google.com/go/compute/metadata"
 	"github.com/golang/glog"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -82,12 +81,12 @@ func createTimeSeries(timestamp time.Time, labels map[string]string, metric stri
 
 	switch val.ValueType {
 	case core.ValueInt64:
-		point.Value.Int64Value = val.IntValue
+		point.Value.Int64Value = &val.IntValue
 		point.Value.ForceSendFields = []string{"Int64Value"}
 		valueType = "INT64"
 	case core.ValueFloat:
 		v := float64(val.FloatValue)
-		point.Value.DoubleValue = v
+		point.Value.DoubleValue = &v
 		point.Value.ForceSendFields = []string{"DoubleValue"}
 		valueType = "DOUBLE"
 	default:
@@ -306,6 +305,9 @@ func CreateGCMSink(uri *url.URL) (core.DataSink, error) {
 	}
 
 	opts, err := url.ParseQuery(uri.RawQuery)
+	if err != nil {
+		return nil, err
+	}
 
 	metrics := "all"
 	if len(opts["metrics"]) > 0 {
@@ -321,21 +323,21 @@ func CreateGCMSink(uri *url.URL) (core.DataSink, error) {
 		return nil, fmt.Errorf("invalid metrics parameter: %s", metrics)
 	}
 
-	if err := gce_util.EnsureOnGCE(); err != nil {
-		return nil, err
-	}
-
-	// Detect project ID
-	projectId, err := gce.ProjectID()
+	client, err := google.DefaultClient(oauth2.NoContext, gcm.MonitoringScope)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error creating oauth2 client: %v", err)
 	}
 
 	// Create Google Cloud Monitoring service.
-	client := oauth2.NewClient(oauth2.NoContext, google.ComputeTokenSource(""))
 	gcmService, err := gcm.New(client)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error creating GCM service: %v", err)
+	}
+
+	// Get the GCP Project ID.
+	projectId, err := gce_util.GetProjectId()
+	if err != nil {
+		return nil, fmt.Errorf("error getting GCP project ID: %v", err)
 	}
 
 	sink := &gcmSink{

@@ -16,108 +16,41 @@ package riemann
 
 import (
 	"net/url"
-	"runtime"
-	"strconv"
 	"sync"
-	"time"
 
 	"github.com/golang/glog"
 	"github.com/riemann/riemann-go-client"
+	riemannCommon "k8s.io/heapster/common/riemann"
 	"k8s.io/heapster/metrics/core"
 )
 
-// Used to store the Riemann configuration specified in the Heapster cli
-type riemannConfig struct {
-	host      string
-	ttl       float32
-	state     string
-	tags      []string
-	batchSize int
-}
-
 // contains the riemann client, the riemann configuration, and a RWMutex
-type riemannSink struct {
+type RiemannSink struct {
 	client riemanngo.Client
-	config riemannConfig
+	config riemannCommon.RiemannConfig
 	sync.RWMutex
 }
 
 // creates a Riemann sink. Returns a riemannSink
 func CreateRiemannSink(uri *url.URL) (core.DataSink, error) {
-	// Default configuration
-	c := riemannConfig{
-		host:      "riemann-heapster:5555",
-		ttl:       60.0,
-		state:     "",
-		tags:      make([]string, 0),
-		batchSize: 1000,
-	}
-	// check host
-	if len(uri.Host) > 0 {
-		c.host = uri.Host
-	}
-	options := uri.Query()
-	// check ttl
-	if len(options["ttl"]) > 0 {
-		var ttl, err = strconv.ParseFloat(options["ttl"][0], 32)
-		if err != nil {
-			return nil, err
-		}
-		c.ttl = float32(ttl)
-	}
-	// check batch size
-	if len(options["batchsize"]) > 0 {
-		var batchSize, err = strconv.Atoi(options["batchsize"][0])
-		if err != nil {
-			return nil, err
-		}
-		c.batchSize = batchSize
-	}
-	// check state
-	if len(options["state"]) > 0 {
-		c.state = options["state"][0]
-	}
-	// check tags
-	if len(options["tags"]) > 0 {
-		c.tags = options["tags"]
-	} else {
-		c.tags = []string{"heapster"}
-	}
-
-	glog.Infof("Riemann sink URI: '%+v', host: '%+v', options: '%+v', ", uri, c.host, options)
-	rs := &riemannSink{
-		client: nil,
-		config: c,
-	}
-	// connect the client
-	err := rs.connectRiemannClient()
+	var sink, err = riemannCommon.CreateRiemannSink(uri)
 	if err != nil {
-		glog.Warningf("Riemann sink not connected: %v", err)
-		// Warn but return the sink => the client in the sink can be nil
+		glog.Warningf("Error creating the Riemann metrics sink: %v", err)
+		return nil, err
+	}
+	rs := &RiemannSink{
+		client: sink.Client,
+		config: sink.Config,
 	}
 	return rs, nil
 }
 
-// Receives a sink, connect the riemann client.
-func (rs *riemannSink) connectRiemannClient() error {
-	glog.Infof("Connect Riemann client...")
-	client := riemanngo.NewTcpClient(rs.config.host)
-	runtime.SetFinalizer(client, func(c riemanngo.Client) { c.Close() })
-	// 5 seconds timeout
-	err := client.Connect(5)
-	if err != nil {
-		return err
-	}
-	rs.client = client
-	return nil
-}
-
 // Return a user-friendly string describing the sink
-func (sink *riemannSink) Name() string {
+func (sink *RiemannSink) Name() string {
 	return "Riemann Sink"
 }
 
-func (sink *riemannSink) Stop() {
+func (sink *RiemannSink) Stop() {
 	// nothing needs to be done.
 }
 
@@ -125,7 +58,7 @@ func (sink *riemannSink) Stop() {
 // Creates a new event using the parameters and the sink config, and add it into the Event list.
 // Can send events if events is full
 // Return the list.
-func appendEvent(events []riemanngo.Event, sink *riemannSink, host, name string, value interface{}, labels map[string]string, timestamp int64) []riemanngo.Event {
+func appendEvent(events []riemanngo.Event, sink *RiemannSink, host, name string, value interface{}, labels map[string]string, timestamp int64) []riemanngo.Event {
 	event := riemanngo.Event{
 		Time:        timestamp,
 		Service:     name,
@@ -133,30 +66,37 @@ func appendEvent(events []riemanngo.Event, sink *riemannSink, host, name string,
 		Description: "",
 		Attributes:  labels,
 		Metric:      value,
-		Ttl:         sink.config.ttl,
-		State:       sink.config.state,
-		Tags:        sink.config.tags,
+		Ttl:         sink.config.Ttl,
+		State:       sink.config.State,
+		Tags:        sink.config.Tags,
 	}
 	// state everywhere
 	events = append(events, event)
-	if len(events) >= sink.config.batchSize {
-		sink.sendData(events)
+	if len(events) >= sink.config.BatchSize {
+		err := riemannCommon.SendData(sink.client, events)
+		if err != nil {
+			glog.Warningf("Error sending events to Riemann: ", err)
+			// client will reconnect later
+			sink.client = nil
+		}
 		events = nil
 	}
 	return events
 }
 
 // ExportData Send a collection of Timeseries to Riemann
-func (sink *riemannSink) ExportData(dataBatch *core.DataBatch) {
+func (sink *RiemannSink) ExportData(dataBatch *core.DataBatch) {
 	sink.Lock()
 	defer sink.Unlock()
 
 	if sink.client == nil {
 		// the client could be nil here, so we reconnect
-		if err := sink.connectRiemannClient(); err != nil {
+		client, err := riemannCommon.GetRiemannClient(sink.config)
+		if err != nil {
 			glog.Warningf("Riemann sink not connected: %v", err)
 			return
 		}
+		sink.client = client
 	}
 
 	var events []riemanngo.Event
@@ -181,31 +121,17 @@ func (sink *riemannSink) ExportData(dataBatch *core.DataBatch) {
 				}
 				timestamp := dataBatch.Timestamp.Unix()
 				// creates an event and add it to dataEvent
-				appendEvent(events, sink, host, metric.Name, value, labels, timestamp)
+				events = appendEvent(events, sink, host, metric.Name, value, labels, timestamp)
 			}
 		}
 	}
 	// Send events to Riemann if events is not empty
 	if len(events) > 0 {
-		sink.sendData(events)
-	}
-}
-
-// Send Events to Riemann using the client from the sink.
-func (sink *riemannSink) sendData(events []riemanngo.Event) {
-	// do nothing if we are not connected
-	if sink.client == nil {
-		glog.Warningf("Riemann sink not connected")
-		return
-	}
-	start := time.Now()
-	_, err := riemanngo.SendEvents(sink.client, &events)
-	end := time.Now()
-	if err == nil {
-		glog.V(4).Infof("Exported %d events to riemann in %s", len(events), end.Sub(start))
-	} else {
-		glog.Warningf("There were errors sending events to Riemman, forcing reconnection. Error : %+v", err)
-		// client will reconnect later
-		sink.client = nil
+		err := riemannCommon.SendData(sink.client, events)
+		if err != nil {
+			glog.Warningf("Error sending events to Riemann: ", err)
+			// client will reconnect later
+			sink.client = nil
+		}
 	}
 }
